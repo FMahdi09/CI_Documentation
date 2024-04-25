@@ -733,69 +733,24 @@ Current DNS Server: 10.0.1.11
 
 3. Install the docker engine
 
-4. Create the setup file "setup.sh"
-
-```
-vim setup.sh
-```
-
-5. Edit the file so it looks like the following and execute it
-
-```
-#!/usr/bin/env bash
-
-set -e
-
-mkdir -p data
-touch data/.runner
-mkdir -p data/.cache
-
-chown -R 1001:1001 data/.runner
-chown -R 1001:1001 data/.cache
-chmod 775 data/.runner
-chmod 775 data/.cache
-chmod g+s data/.runner
-chmod g+s data/.cache
-```
-
-```
-sudo bash setup.sh
-```
-
-6. Create a docker-compose file
+4. Create a docker-compose file
 
 ```
 vim docker-compose.yml
 ```
 
-7. Edit it so it looks like the following
+5. Edit it so it looks like the following
 
 ```
 services:
-  docker-in-docker:
-    image: docker:dind
-    container_name: 'docker_dind'
-    privileged: true
-    command: [ "dockerd", "-H", "tcp://0.0.0.0:2375", "--tls=false" ]
-    restart: 'unless-stopped'
-
-  gitea:
+  runner:
     image: 'code.forgejo.org/forgejo/runner:3.3.0'
-    links:
-      - docker-in-docker
-    depends_on:
-      docker-in-docker:
-        condition: service_started
     container_name: 'runner'
-    environment:
-      DOCKER_HOST: tcp://docker-in-docker:2375
-    # A user without root privileges, but with access to `./data`.
-    user: 1001:1001
     volumes:
       - ./data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
     restart: 'unless-stopped'
-
-    command: '/bin/sh -c "while : ; do sleep 1 ; done ;"'
+    command: '/bin/sh -c "while : ; do sleep 1 ; done ;"
 ```
 
 8. Start the container
@@ -828,7 +783,7 @@ Now the runner should be visible at https://DOMAIN/user/settings/actions/runners
     - edit the command line in the docker compose file so it looks like the following
 
     ```
-    command: '/bin/sh -c "sleep 5; forgejo-runner daemon"'
+    command: 'forgejo-runner daemon"'
     ```
 
     - restart the runner docker container
