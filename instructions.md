@@ -790,3 +790,141 @@ Now the runner should be visible at https://DOMAIN/user/settings/actions/runners
 
 Now the runner should be displayed as idle.
 
+
+## SonarQube
+
+1. Launch a EC2 instance with the following values
+    - Name: CI-ec2-sonarqube
+    - OS: Ubuntu 22.04 LTS, 64-bit (x86)
+    - Instance Type: t2.medium (2 vCPU, 4 GiB Memory)
+    - Key pair name: vockey (AWS lab default key)
+    - Storage: 8 GiB
+
+    Under Networksettings select the following
+    - VPC: our VPC (CI-vpc)
+    - Subnet: our public subnet (CI-subnet-public)
+    - Auto-assing public IP: Enable
+    - Select exisiting security group: CI-security-git
+    - Primary IP: 10.0.0.14
+
+3. Install the docker engine (see above)
+
+4. Setup Caddy for HTTPS in a new directory caddy (see above)
+
+5. Setup SonarQube
+
+    - go back to the main directory and create a sonarqube directory
+
+    ```
+    mkdir sonarqube
+    ```
+
+    - add a docker-compose.yml file
+
+    ```
+    vim docker-compose.yml
+    ```
+
+    - edit the file so it looks like the following
+
+    ```
+    services:
+      sonarqube:
+        image: sonarqube:10.4.1-community
+        depends_on:
+          - db
+        environment:
+          SONAR_JDBC_URL: jdbc:postgresql://db:5432/sonar
+          SONAR_JDBC_USERNAME: sonar
+          SONAR_JDBC_PASSWORD: sonar
+        volumes:
+          - sonarqube_data:/opt/sonarqube/data
+          - sonarqube_extensions:/opt/sonarqube/extensions
+          - sonarqube_logs:/opt/sonarqube/logs
+        ports:
+          - "9000:9000"
+        restart: unless-stopped
+    
+      db:
+        image: postgres:12
+        environment:
+          POSTGRES_USER: sonar
+          POSTGRES_PASSWORD: sonar
+        volumes:
+          - postgresql:/var/lib/postgresql
+          - postgresql_data:/var/lib/postgresql/data
+        restart: unless-stopped
+    
+    volumes:
+      sonarqube_data:
+      sonarqube_extensions:
+      sonarqube_logs:
+      postgresql:
+      postgresql_data:
+    ```
+
+    - now start sonarqube
+
+    ```
+    sudo docker compose up -d
+    ```
+
+    - now go to the web GUI of sonarqube at the configured host address and keep from there
+  
+6. Configure connection between SonarQube and Forgejo
+
+    - In SonarQube GUI: reset the password, choose the option to create a project manually and pick GitHub Actions
+    - Create necessary Tokens in Forgejo
+    - Modify /workflows/build.yml file in Forgejo repository to include Sonarqube at linting stage:
+   
+    ```
+    name: ci
+    
+    on:
+      push:
+        branches:
+          - "main"
+    
+    jobs:
+      lint:
+        name: Static Code Analysis
+        runs-on: ubuntu-22.04
+        permissions: read-all
+        steps:
+          - name: Checkout Code
+            uses: actions/checkout@v4
+            with:
+              fetch-depth: 0
+          - name: SonarQube Scan
+            uses: sonarsource/sonarqube-scan-action@v2.0.2
+            env:
+              SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+              SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+                
+      build:
+        needs: lint
+        runs-on: ubuntu-22.04
+        steps:
+          -
+            name: Checkout
+            uses: actions/checkout@v4
+          -
+            name: Login to Docker Hub
+            uses: docker/login-action@v3
+            with:
+              username: ${{ secrets.DOCKERHUB_USERNAME }}
+              password: ${{ secrets.DOCKERHUB_TOKEN }}
+          -
+            name: Set up Docker Buildx
+            uses: docker/setup-buildx-action@v3
+          -
+            name: Build and push
+            uses: docker/build-push-action@v5
+            with:
+              context: .
+              file: ./Dockerfile
+              push: true
+              tags: ${{ secrets.DOCKERHUB_USERNAME }}/ci_server:latest
+    ```
+
+    - outcome should be visible in SonarQube Gui
