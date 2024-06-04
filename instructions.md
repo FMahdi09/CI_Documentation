@@ -790,6 +790,11 @@ Now the runner should be visible at https://DOMAIN/user/settings/actions/runners
 
 Now the runner should be displayed as idle.
 
+Command to execute in case the runner is inactive:
+    ```
+    sudo chmod 666 /var/run/docker.sock
+    ```
+
 
 ## SonarQube
 
@@ -928,3 +933,76 @@ Now the runner should be displayed as idle.
     ```
 
     - outcome should be visible in SonarQube Gui
+
+## Snyk
+
+1. Sign up on Snyk
+
+2. Go to: Account Settings -> General -> Auth Token and copy the key
+
+3. Modify /workflows/build.yml file in Forgejo repository to include Snyk at security stage:
+
+   ```
+   name: ci
+
+    on:
+      push:
+        branches:
+          - "main"
+    
+    jobs:
+      lint:
+        name: Static Code Analysis
+        runs-on: ubuntu-22.04
+        permissions: read-all
+        steps:
+          - name: Checkout Code
+            uses: actions/checkout@v4
+            with:
+              fetch-depth: 0
+          - name: SonarQube Scan
+            uses: sonarsource/sonarqube-scan-action@v2.0.2
+            env:
+              SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+              SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+    
+      security:
+        name: Vulnerability Check
+        needs: lint
+        runs-on: ubuntu-22.04
+        steps:
+          - uses: actions/checkout@master
+          - name: Run Snyk to check for vulnerabilities
+            uses: snyk/actions/node@master
+            env:
+              SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+                
+      build:
+        name: Build docker images
+        needs: security
+        runs-on: ubuntu-22.04
+        steps:
+          -
+            name: Checkout
+            uses: actions/checkout@v4
+          -
+            name: Login to Docker Hub
+            uses: docker/login-action@v3
+            with:
+              username: ${{ secrets.DOCKERHUB_USERNAME }}
+              password: ${{ secrets.DOCKERHUB_TOKEN }}
+          -
+            name: Set up Docker Buildx
+            uses: docker/setup-buildx-action@v3
+          -
+            name: Build and push
+            uses: docker/build-push-action@v5
+            with:
+              context: .
+              file: ./Dockerfile
+              push: true
+              tags: ${{ secrets.DOCKERHUB_USERNAME }}/ci_server:latest
+   ```
+
+4. Run the pipeline and ensure there are no vulnerabilities. You might have to update them a couple of times.
+
