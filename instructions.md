@@ -940,7 +940,9 @@ Command to execute in case the runner is inactive:
 
 2. Go to: Account Settings -> General -> Auth Token and copy the key
 
-3. Modify /workflows/build.yml file in Forgejo repository to include Snyk at security stage:
+3. Add the key under Forgejo repository secrets: SNYK_TOKEN
+
+4. Modify /workflows/build.yml file in Forgejo repository to include Snyk at security stage:
 
    ```
    name: ci
@@ -1004,5 +1006,5 @@ Command to execute in case the runner is inactive:
               tags: ${{ secrets.DOCKERHUB_USERNAME }}/ci_server:latest
    ```
 
-4. Run the pipeline and ensure there are no vulnerabilities. You might have to update them a couple of times.
+5. Run the pipeline and ensure there are no vulnerabilities. You might have to update them a couple of times.
 
