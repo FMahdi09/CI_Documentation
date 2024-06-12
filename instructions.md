@@ -1234,3 +1234,203 @@ Make sure to setup the host address correctly
           port: 22
           script: sudo ./deploy.sh
 ```
+
+## Frontend Server
+
+1. Launch a EC2 instance with the following values
+    - Name: CI-ec2-frontend
+    - OS: Ubuntu 22.04 LTS, 64-bit (x86)
+    - Instance Type: t2.medium (2 vCPU, 4 GiB Memory)
+    - Key pair name: vockey (AWS lab default key)
+    - Storage: 8 GiB
+
+    Under Networksettings select the following
+    - VPC: our VPC (CI-vpc)
+    - Subnet: our public subnet (CI-subnet-public)
+    - Auto-assing public IP: Enable
+    - Select exisiting security group: CI-security-git
+    - Primary IP: 10.0.0.21
+
+3. Install the docker engine (see above)
+
+4. Create a docker file for nginx
+
+```
+vim nginx-compose.yml
+```
+
+Edit it so it looks like the following
+
+```
+services:
+ nginx:
+    image: nginx:latest
+    container_name: nginx
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf     
+```
+
+5. Create nginx config files for the blue and green enviroments
+
+```
+vim blue.conf
+```
+
+Edit the file so it looks like the following
+
+```
+worker_processes 1;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    server {
+        listen 80;
+
+        location / {
+            proxy_pass http://<SERVER_DOMAIN>:3001; # Change this to switch traffic to web_green
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+    }
+}
+```
+
+```
+vim green.conf
+```
+
+Edit the file so it looks like the following
+
+```
+worker_processes 1;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    server {
+        listen 80;
+
+        location / {
+            proxy_pass http://<SERVER_DOMAIN>:3002;      proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+    }
+}
+```
+
+Create sample nginx config file (we default to blue)
+
+```
+cp blue.conf nginx.conf
+```
+
+6. Start nginx
+
+```
+sudo docker compose -f ./nginx-compose.yml up -d
+```
+
+7. Create compose files for the blue and green enviroment
+
+```
+vim green-compose.yml
+```
+
+Edit the file so it looks like the following
+
+```
+services:
+  green:
+    image: <YOUR_IMG_HERE>:latest
+    container_name: green
+    ports:
+      - "3002:80"
+```
+
+```
+vim blue-compose.yml
+```
+
+Edit the file so it looks like the following
+
+```
+services:
+  blue:
+    image: <YOUR_IMG_HERE>:latest
+    container_name: blue
+    ports:
+      - "3002:80"
+```
+
+8. Create a shell script which will execute the blue/green deployment
+
+```
+vim deploy.sh
+```
+
+Edit the file so it looks like the following
+
+```
+#!/bin/bash
+
+BLUE_SERVICE="blue"
+GREEN_SERVICE="green"
+
+if docker ps --format "{{.Names}}" | grep -q "$BLUE_SERVICE"; then
+        ACTIVE_SERVICE=$BLUE_SERVICE
+        INACTIVE_SERVICE=$GREEN_SERVICE
+elif docker ps --format "{{.Names}}" | grep -q "$GREEN_SERVICE"; then
+        ACTIVE_SERVICE=$GREEN_SERVICE
+        INACTIVE_SERVICE=$BLUE_SERVICE
+else
+        ACTIVE_SERVICE=$GREEN_SERVICE
+        INACTIVE_SERVICE=$BLUE_SERVICE
+fi
+
+# startup new env
+sudo docker compose -f ./$INACTIVE_SERVICE-compose.yml pull && sudo docker compose -f ./$INACTIVE_SERVICE-compose.yml up -d
+
+# copy correct nginx config
+cp $INACTIVE_SERVICE.conf nginx.conf
+
+# reconfigure nginx
+sudo docker exec nginx nginx -s reload
+
+# shutdown old env
+sudo docker compose -f ./$ACTIVE_SERVICE-compose.yml down
+
+# remove all unused leftover images
+sudo docker image prune -af
+```
+
+9. The following github action deploy step will execute the deployment
+
+Make sure to setup the host address correctly
+
+```
+  deploy:
+    name: deploy backend
+    needs: deliver
+    runs-on: ubuntu-22.04
+    steps:
+      - name: executing remote ssh commands using ssh key
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: <SERVER_DOMAIN>
+          username: ubuntu
+          key: ${{ secrets.SSH_KEY }}
+          port: 22
+          script: sudo ./deploy.sh
+```
